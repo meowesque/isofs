@@ -3,7 +3,7 @@ name = "isofs"
 version = "0.0.0"
 edition = "2021"
 license = "MIT"
-description = "UDF filesystem library"
+description = "UDF and ISO 9660 filesystems library"
 
 [features]
 # TODO(meowesque) Remove this.
