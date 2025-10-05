@@ -54,12 +54,19 @@ impl<const LENGTH: usize> ACharacters<LENGTH> {
 pub struct DCharacters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
 impl<const LENGTH: usize> DCharacters<LENGTH> {
+  const CHARACTER_SET: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+
   /// Convert from a byte slice, truncating or zero-padding as necessary.
-  pub fn from_bytes_truncated(bytes: &[u8]) -> Self {
-    // TODO(meowesque): Validate characters?
+  pub fn from_bytes_truncated(bytes: &[u8]) -> Option<Self> {
+    if !bytes.iter().all(|b| Self::CHARACTER_SET.contains(b)) {
+      return None;
+    }
+
     let mut cs = [0u8; LENGTH];
+
     cs[..LENGTH.min(bytes.len())].copy_from_slice(&bytes[..LENGTH.min(bytes.len())]);
-    Self(cs)
+
+    Some(Self(cs))
   }
 }
 
@@ -374,7 +381,7 @@ pub struct DigitsDate {
 #[cfg(feature = "chrono")]
 impl<Tz: chrono::TimeZone> From<chrono::DateTime<Tz>> for DigitsDate {
   fn from(dt: chrono::DateTime<Tz>) -> Self {
-    use chrono::{Timelike, Datelike};
+    use chrono::{Datelike, Timelike};
 
     Self {
       year: DigitsYear(dt.year() as u16),
@@ -385,7 +392,7 @@ impl<Tz: chrono::TimeZone> From<chrono::DateTime<Tz>> for DigitsDate {
       second: DigitsSecond(dt.second() as u8),
       hundreths: DigitsHundreths((dt.timestamp_subsec_millis() / 10) as u8),
       // TODO(meowesque): Calculate this.
-      gmt_offset: NumericalGmtOffset(0)
+      gmt_offset: NumericalGmtOffset(0),
     }
   }
 }
@@ -425,7 +432,6 @@ impl<Tz: chrono::TimeZone> From<chrono::DateTime<Tz>> for NumericalDate {
     }
   }
 }
-
 
 #[cfg(feature = "chrono")]
 impl<Tz: chrono::TimeZone> Into<chrono::DateTime<Tz>> for NumericalDate {
