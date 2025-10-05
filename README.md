@@ -2,7 +2,7 @@
 
 ![Crates.io Version](https://img.shields.io/crates/v/isofs)
 
-A library for manipulating `.iso` files (ie. ISO 9660) and UDF filesystems. 
+`isofs` is a library for manipulating `.iso` files (ie. ISO 9660) and UDF filesystems. 
 
 ## Features
 
