@@ -16,7 +16,7 @@ pub trait EntryLike {
 }
 
 pub trait DirectoryLike: EntryLike {
-  fn entries_iter(&self) -> impl Iterator<Item = &Entry>; 
+  fn entries_iter(&self) -> impl Iterator<Item = &Entry>;
 
   fn entries_mut(&mut self) -> &mut Vec<Entry>;
 
@@ -60,6 +60,12 @@ pub struct FileEntry {
   pub(crate) handle: std::fs::File,
 }
 
+impl FileEntry {
+  pub fn name(&self) -> &str {
+    &self.name
+  }
+}
+
 impl EntryLike for FileEntry {
   fn extent_lba(&self) -> Option<u32> {
     self.extent_lba
@@ -94,7 +100,8 @@ impl FileEntry {
 
     Ok(Self {
       extent_lba: None,
-      name,
+      // TODO(meowesque): Handle revision numbers properly.
+      name: format!("{};1", name),
       metadata,
       handle,
     })
@@ -119,7 +126,7 @@ impl EntryLike for DirectoryEntry {
 
   fn descriptor(&self) -> spec::DirectoryRecord<spec::NoExtension> {
     spec::DirectoryRecord {
-      length: 33 + self.name.len() as u8 + (self.name.len() % 2 == 0) as u8,
+      length: 34 + self.name.len() as u8 + (self.name.len() % 2) as u8,
       extended_attribute_length: 0,
       extent_location: self.extent_lba.unwrap_or(0),
       // TODO(meowesque): This seems inefficient.
@@ -201,7 +208,6 @@ pub struct RootDirectory {
   pub extent_lba: Option<u32>,
   pub entries: Vec<Entry>,
 }
-
 
 impl EntryLike for RootDirectory {
   fn extent_lba(&self) -> Option<u32> {
