@@ -764,7 +764,7 @@ where
   Ext::FileIdentifier: IsoSerialize,
 {
   fn extent(&self) -> usize {
-    33 + self.file_identifier.extent() + (self.file_identifier.extent() % 2)
+    34 + self.file_identifier.extent() + (self.file_identifier.extent() % 2)
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
@@ -780,11 +780,14 @@ where
     out[27] = self.interleave_gap_size;
     out[28..30].copy_from_slice(&self.volume_sequence_number.to_le_bytes());
     out[30..32].copy_from_slice(&self.volume_sequence_number.to_be_bytes());
-    out[32] = self.file_identifier.extent() as u8;
+    // TODO(meowesque): Why does this fix identifiers being misread ?
+    out[32] = self.file_identifier.extent() as u8 - 1;
+    
     // TODO(meowesque): Check if this is right ?
     self
       .file_identifier
       .serialize_unchecked(&mut out[33..33 + self.file_identifier.extent()])?;
+
     // TODO(meowesque): Check if this is right ?
     if self.file_identifier.extent() % 2 == 1 {
       out[33 + self.file_identifier.extent()] = 0;
