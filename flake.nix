@@ -74,6 +74,8 @@
               cargo
               clippy
               rust-analyzer
+              fuseiso
+              libcdio
             ]
             ++ buildInputs
             ++ nativeBuildInputs
