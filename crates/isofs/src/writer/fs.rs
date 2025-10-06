@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::spec;
+use crate::{serialize::IsoSerialize, spec};
 
 pub trait EntryLike {
   fn extent_lba(&self) -> Option<u32>;
@@ -77,7 +77,6 @@ impl EntryLike for FileEntry {
 
   fn descriptor(&self) -> spec::DirectoryRecord<spec::NoExtension> {
     spec::DirectoryRecord {
-      length: 33 + self.name.len() as u8 + (self.name.len() % 2 == 0) as u8,
       extended_attribute_length: 0,
       extent_location: self.extent_lba.unwrap_or(0),
       data_length: self.metadata.len() as u32,
@@ -126,15 +125,16 @@ impl EntryLike for DirectoryEntry {
 
   fn descriptor(&self) -> spec::DirectoryRecord<spec::NoExtension> {
     spec::DirectoryRecord {
-      length: 34 + self.name.len() as u8 + (self.name.len() % 2) as u8,
       extended_attribute_length: 0,
       extent_location: self.extent_lba.unwrap_or(0),
       // TODO(meowesque): This seems inefficient.
       data_length: self
         .entries
         .iter()
-        .map(|e| e.descriptor().length as u32)
-        .sum(),
+        .map(|e| e.descriptor().extent() as u32)
+        .sum::<u32>()
+        // . and .. entries
+        + (34 * 2),
       // TODO(meowesque): Time handling?
       recording_date: chrono::Utc::now().into(),
       file_flags: spec::FileFlags::DIRECTORY,
@@ -220,15 +220,16 @@ impl EntryLike for RootDirectory {
 
   fn descriptor(&self) -> spec::DirectoryRecord<spec::NoExtension> {
     spec::DirectoryRecord {
-      length: 34 as u8,
       extended_attribute_length: 0,
       extent_location: self.extent_lba.unwrap_or(0),
       // TODO(meowesque): This seems inefficient.
       data_length: self
         .entries
         .iter()
-        .map(|e| e.descriptor().length as u32)
-        .sum(),
+        .map(|e| e.descriptor().extent() as u32)
+        .sum::<u32>()
+        // . entry
+        + 34,
       // TODO(meowesque): Time handling?
       recording_date: chrono::Utc::now().into(),
       file_flags: spec::FileFlags::DIRECTORY,
@@ -259,7 +260,7 @@ impl RootDirectory {
       data_length: self
         .entries
         .iter()
-        .map(|e| e.descriptor().length as u32)
+        .map(|e| e.descriptor().extent() as u32)
         .sum(),
       recording_date: chrono::Utc::now().into(),
       file_flags: spec::FileFlags::DIRECTORY,

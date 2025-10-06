@@ -3,9 +3,9 @@
 ## Phase 1: Core ISO 9660 Compliance
 
 ### Directory Structure Fixes
-- [ ] Add mandatory "." (current directory) entries to all directories
-- [ ] Add mandatory ".." (parent directory) entries to all directories
-- [ ] Fix data_length calculation to include "." and ".." entries
+- [X] Add mandatory "." (current directory) entries to all directories
+- [X] Add mandatory ".." (parent directory) entries to all directories
+- [X] Fix data_length calculation to include "." and ".." entries
 - [ ] Implement proper sector alignment and padding for directory records
 - [ ] Ensure directory records don't span sector boundaries
 
