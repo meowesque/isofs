@@ -324,49 +324,49 @@ impl Into<u8> for FileStructureVersion {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DigitsYear(pub(crate) u16);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DigitsMonth(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DigitsDay(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DigitsHour(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DigitsMinute(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DigitsHundreths(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DigitsSecond(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NumericalYear(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NumericalMonth(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NumericalDay(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NumericalHour(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NumericalMinute(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NumericalSecond(pub(crate) u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NumericalGmtOffset(pub(crate) i8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DigitsDate {
   pub year: DigitsYear,
   pub month: DigitsMonth,
@@ -404,7 +404,7 @@ impl<Tz: chrono::TimeZone> Into<chrono::DateTime<Tz>> for DigitsDate {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NumericalDate {
   pub years_since_1900: NumericalYear,
   pub month: NumericalMonth,
@@ -519,7 +519,6 @@ pub struct VolumeDescriptorSetTerminator;
 
 #[derive(Debug)]
 pub struct DirectoryRecord<Ext: Extension> {
-  pub length: u8,
   pub extended_attribute_length: u8,
   pub extent_location: u32,
   pub data_length: u32,
