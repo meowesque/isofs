@@ -169,6 +169,22 @@ impl<const LENGTH: usize> FileIdentifier<LENGTH> {
 #[derive(Debug)]
 pub struct DirectoryIdentifier<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
+impl<const LENGTH: usize> DirectoryIdentifier<LENGTH> {
+  /// Convert from a byte slice, truncating or zero-padding as necessary.
+  pub fn from_bytes_truncated(bytes: &[u8]) -> Option<Self> {
+    // TODO(meowesque): Validate characters?
+    /*if !bytes.iter().all(|b| DCharacters::<LENGTH>::CHARACTER_SET.contains(b)) {
+      return None;
+    }*/
+
+    let mut cs = [0u8; LENGTH];
+
+    cs[..LENGTH.min(bytes.len())].copy_from_slice(&bytes[..LENGTH.min(bytes.len())]);
+
+    Some(Self(cs))
+  }
+}
+
 /// TODO(meowesque): Define this better?
 #[derive(Debug)]
 pub struct OwnerIdentification(pub(crate) u16);
@@ -548,6 +564,7 @@ pub struct RootDirectoryRecord {
 #[derive(Debug)]
 pub struct PathTableRecord<Ext: Extension> {
   pub directory_identifier_length: u8,
+  pub extended_attribute_record_length: u8,
   pub extent_location: u32,
   pub parent_directory_number: u16,
   pub directory_identifier: Ext::DirectoryIdentifier,

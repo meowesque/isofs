@@ -1,15 +1,17 @@
+use std::path;
+
 use crate::{
-  serialize::IsoSerialize,
+  serialize::{Endianness, IsoSerialize},
   spec::{self, VolumeDescriptorSetTerminator},
-  writer::volume::VolumeLike,
+  writer::{sector::SectorWriter, volume::VolumeLike},
 };
 
 pub mod error;
 pub mod fs;
 pub mod lba;
+pub mod path_table;
 pub mod sector;
 pub mod volume;
-pub mod path_table;
 
 pub enum Standard {
   Iso9660,
@@ -106,22 +108,24 @@ impl IsoWriter {
 
       let mut byte_buf = vec![];
 
-      let dot_entry = spec::DirectoryRecord::<spec::NoExtension> {
-        extended_attribute_length: 0,
-        extent_location: directory_descriptor.extent_location,
-        data_length: directory_descriptor.data_length,
-        recording_date: directory_descriptor.recording_date.clone(),
-        file_flags: spec::FileFlags::DIRECTORY,
-        file_unit_size: 0,
-        interleave_gap_size: 0,
-        volume_sequence_number: 1,
-        file_identifier_length: 1,
-        file_identifier: spec::FileIdentifier::from_bytes_truncated(&[0u8; 1]),
-      };
+      {
+        let dot_entry = spec::DirectoryRecord::<spec::NoExtension> {
+          extended_attribute_length: 0,
+          extent_location: directory_descriptor.extent_location,
+          data_length: directory_descriptor.data_length,
+          recording_date: directory_descriptor.recording_date.clone(),
+          file_flags: spec::FileFlags::DIRECTORY,
+          file_unit_size: 0,
+          interleave_gap_size: 0,
+          volume_sequence_number: 1,
+          file_identifier_length: 1,
+          file_identifier: spec::FileIdentifier::from_bytes_truncated(&[0u8; 1]),
+        };
 
-      byte_buf.resize(dot_entry.extent(), 0);
-      dot_entry.serialize(&mut byte_buf[..])?;
-      sector_writer.write_aligned(&byte_buf[..dot_entry.extent() as usize])?;
+        byte_buf.resize(dot_entry.extent(), 0);
+        dot_entry.serialize(&mut (), &mut byte_buf[..])?;
+        sector_writer.write_aligned(&byte_buf[..dot_entry.extent() as usize])?;
+      }
 
       // No .. entry for the root directory.
       if let Some(parent_directory_entry_descriptor) = parent_directory_entry_descriptor {
@@ -139,7 +143,7 @@ impl IsoWriter {
         };
 
         byte_buf.resize(dotdot_entry.extent(), 0);
-        dotdot_entry.serialize(&mut byte_buf[..])?;
+        dotdot_entry.serialize(&mut (), &mut byte_buf[..])?;
         sector_writer.write_aligned(&byte_buf[..dotdot_entry.extent() as usize])?;
       }
 
@@ -153,7 +157,7 @@ impl IsoWriter {
         );
 
         byte_buf.resize(entry_descriptor.extent(), 0);
-        entry_descriptor.serialize(&mut byte_buf[..])?;
+        entry_descriptor.serialize(&mut (), &mut byte_buf[..])?;
 
         sector_writer.write_aligned(&byte_buf[..entry_descriptor.extent() as usize])?;
       }
@@ -201,16 +205,69 @@ impl IsoWriter {
     };
 
     {
-      let mut bytes: [u8; 2048] = [0; 2048];
+      let mut vd_bytes: [u8; 2048] = [0; 2048];
 
-      writer.seek(std::io::SeekFrom::Start(16 * 2048))?;
-
-      for volume in self.volumes.iter_mut() {
+      for (ix, volume) in self.volumes.iter_mut().enumerate() {
         match volume {
           volume::Volume::Primary(pv) => {
             pv.filesystem.assign_extent_lbas(&mut allocator);
-            pv.descriptor(&context).serialize(&mut bytes)?;
-            writer.write_all(&bytes)?;
+
+            let path_table = path_table::PathTable::from_filesystem(&pv.filesystem);
+            let l_lba = path_table.allocate_l_lba(&mut allocator);
+            let m_lba = path_table.allocate_m_lba(&mut allocator);
+
+            {
+              let mut pt_bytes: Vec<u8> = vec![];
+
+              let mut sector_writer =
+                SectorWriter::new(&mut writer, l_lba as u64, self.options.sector_size as u64);
+
+              for record in path_table.records_iter() {
+                log::info!(
+                  "Path table record: dir id len {}, extent {}, parent {}",
+                  record.directory_identifier_length,
+                  record.extent_location,
+                  record.parent_directory_number
+                );
+
+                pt_bytes.resize(record.extent(), 0);
+                record.serialize(&mut Endianness::Little, &mut pt_bytes)?;
+                sector_writer.write_aligned(&pt_bytes)?;
+                pt_bytes.clear();
+              }
+
+              let mut sector_writer =
+                SectorWriter::new(&mut writer, m_lba as u64, self.options.sector_size as u64);
+
+              for record in path_table.records_iter() {
+                log::info!(
+                  "Path table record: dir id len {}, extent {}, parent {}",
+                  record.directory_identifier_length,
+                  record.extent_location,
+                  record.parent_directory_number
+                );
+
+                pt_bytes.resize(record.extent(), 0);
+                record.serialize(&mut Endianness::Big, &mut pt_bytes)?;
+                sector_writer.write_aligned(&pt_bytes)?;
+                pt_bytes.clear();
+              }
+            }
+
+            let mut pvd = pv.descriptor(&context);
+            pvd.type_l_path_table_location = l_lba;
+            pvd.optional_type_l_path_table_location = l_lba;
+            pvd.type_m_path_table_location = m_lba;
+            pvd.optional_type_m_path_table_location = m_lba;
+            pvd.path_table_size = path_table.size();
+
+            writer.seek(std::io::SeekFrom::Start(
+              (ix as u64 + 16) * self.options.sector_size as u64,
+            ))?;
+
+            pvd.serialize(&mut (), &mut vd_bytes)?;
+            writer.write_all(&vd_bytes)?;
+
             write_directory_entry(
               &mut writer,
               None,
@@ -221,13 +278,14 @@ impl IsoWriter {
         }
       }
 
-      writer.seek(std::io::SeekFrom::Start(
-        (self.volumes.len() as u64 + 16) * self.options.sector_size as u64,
-      ))?;
+      {
+        writer.seek(std::io::SeekFrom::Start(
+          (self.volumes.len() as u64 + 16) * self.options.sector_size as u64,
+        ))?;
 
-      spec::VolumeDescriptorSetTerminator.serialize(&mut bytes)?;
-
-      writer.write_all(&bytes)?;
+        spec::VolumeDescriptorSetTerminator.serialize(&mut (), &mut vd_bytes)?;
+        writer.write_all(&vd_bytes)?;
+      }
     }
 
     Ok(())

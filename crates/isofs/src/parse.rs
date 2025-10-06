@@ -23,9 +23,7 @@ impl IsoParse for spec::PrimaryVolumeDescriptor {
         got: inp.len(),
         when_parsing: "PrimaryVolumeDescriptor",
       });
-    }    
-
-    
+    }
 
     todo!()
   }
