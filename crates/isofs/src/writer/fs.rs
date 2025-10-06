@@ -34,8 +34,23 @@ pub trait DirectoryLike: EntryLike {
       (Some(Entry::Directory(dup)), Entry::Directory(dir)) => {
         dir.entries.into_iter().for_each(|x| dup.upsert(x))
       }
-      // Otherwise, just add the entry.
-      (_, entry) => self.entries_mut().push(entry),
+      // Otherwise, insert the entry maintaining directory-first ordering.
+      (_, entry) => {
+        // NOTE(meowesque): Does this even matter?
+        let entries = self.entries_mut();
+        entries.push(entry);
+        entries.sort_by(|a, b| {
+          let a_is_dir = matches!(a, Entry::Directory(_));
+          let b_is_dir = matches!(b, Entry::Directory(_));
+          if a_is_dir && !b_is_dir {
+            std::cmp::Ordering::Less
+          } else if !a_is_dir && b_is_dir {
+            std::cmp::Ordering::Greater
+          } else {
+            a.name().cmp(b.name())
+          }
+        });
+      }
     }
   }
 
@@ -229,7 +244,7 @@ impl EntryLike for RootDirectory {
         .map(|e| e.descriptor().extent() as u32)
         .sum::<u32>()
         // . entry
-        + 34,
+        + (34 * 2),
       // TODO(meowesque): Time handling?
       recording_date: chrono::Utc::now().into(),
       file_flags: spec::FileFlags::DIRECTORY,
@@ -261,7 +276,9 @@ impl RootDirectory {
         .entries
         .iter()
         .map(|e| e.descriptor().extent() as u32)
-        .sum(),
+        .sum::<u32>()
+        // . and .. entries
+        + (34 * 2),
       recording_date: chrono::Utc::now().into(),
       file_flags: spec::FileFlags::DIRECTORY,
       file_unit_size: 0,
