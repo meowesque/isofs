@@ -764,11 +764,11 @@ where
   Ext::FileIdentifier: IsoSerialize,
 {
   fn extent(&self) -> usize {
-    34 + self.file_identifier.extent() + (self.file_identifier.extent() % 2)
+    33 + self.file_identifier_length as usize + (self.file_identifier_length % 2 == 0) as usize
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
-    out[0] = self.length as u8;
+    out[0] = self.extent() as u8;
     out[1] = self.extended_attribute_length;
     out[2..6].copy_from_slice(&self.extent_location.to_le_bytes());
     out[6..10].copy_from_slice(&self.extent_location.to_be_bytes());
@@ -781,16 +781,16 @@ where
     out[28..30].copy_from_slice(&self.volume_sequence_number.to_le_bytes());
     out[30..32].copy_from_slice(&self.volume_sequence_number.to_be_bytes());
     // TODO(meowesque): Why does this fix identifiers being misread ?
-    out[32] = self.file_identifier.extent() as u8 - 1;
-    
+    out[32] = self.file_identifier_length;
+
     // TODO(meowesque): Check if this is right ?
     self
       .file_identifier
-      .serialize_unchecked(&mut out[33..33 + self.file_identifier.extent()])?;
+      .serialize_unchecked(&mut out[33..33 + self.file_identifier_length as usize])?;
 
     // TODO(meowesque): Check if this is right ?
-    if self.file_identifier.extent() % 2 == 1 {
-      out[33 + self.file_identifier.extent()] = 0;
+    if self.file_identifier_length % 2 == 0 {
+      out[33 + self.file_identifier_length as usize] = 0;
     }
 
     Ok(())
@@ -803,7 +803,7 @@ impl IsoSerialize for RootDirectoryRecord {
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
-    out[0] = 34;
+    out[0] = self.extent() as u8;
     out[1] = 0;
 
     out[2..6].copy_from_slice(&self.extent_location.to_le_bytes());
