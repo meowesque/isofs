@@ -113,7 +113,7 @@ def main():
     print()
     print("Consistency Check:")
     if len(le_entries) == len(be_entries):
-      print(f"SUCCESS Both tables have {len(le_entries)} entries")
+      print(f"PASS Both tables have {len(le_entries)} entries")
       
       all_match = True
       for i, (le, be) in enumerate(zip(le_entries, be_entries)):
@@ -121,13 +121,13 @@ def main():
           le['extent_lba'] != be['extent_lba'] or 
           le['parent_dir'] != be['parent_dir'] or 
           le['dir_name'] != be['dir_name']):
-          print(f"ERROR Entry {i+1} mismatch")
+          print(f"FAIL Entry {i+1} mismatch")
           all_match = False
       
       if all_match:
-        print("SUCCESS All entries match between LE and BE tables")
+        print("PASS All entries match between LE and BE tables")
     else:
-      print(f"ERROR Entry count mismatch: LE={len(le_entries)}, BE={len(be_entries)}")
+      print(f"FAIL Entry count mismatch: LE={len(le_entries)}, BE={len(be_entries)}")
 
 if __name__ == '__main__':
   main()
