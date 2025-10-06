@@ -1,4 +1,4 @@
-use crate::{spec, writer::fs::EntryLike};
+use crate::spec;
 
 pub struct VolumeContext {
   pub sector_size: u32,
@@ -31,7 +31,8 @@ impl VolumeLike for PrimaryVolume {
       standard_identifier: context.standard_identifier,
       version: spec::VolumeDescriptorVersion::Standard,
       system_identifier: spec::ACharacters::from_bytes_truncated(b"LINUX"),
-      volume_identifier: spec::DCharacters::from_bytes_truncated(self.volume_id().as_bytes()).unwrap(),
+      volume_identifier: spec::DCharacters::from_bytes_truncated(self.volume_id().as_bytes())
+        .unwrap(),
       volume_space_size: 0,
       volume_set_size: 0,
       volume_sequence_number: 0,
