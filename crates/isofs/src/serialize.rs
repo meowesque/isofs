@@ -881,7 +881,6 @@ where
     out[27] = self.interleave_gap_size;
     out[28..30].copy_from_slice(&self.volume_sequence_number.to_le_bytes());
     out[30..32].copy_from_slice(&self.volume_sequence_number.to_be_bytes());
-    // TODO(meowesque): Why does this fix identifiers being misread ?
     out[32] = self.file_identifier_length;
 
     // TODO(meowesque): Check if this is right ?
@@ -890,7 +889,6 @@ where
       &mut out[33..33 + self.file_identifier_length as usize],
     )?;
 
-    // TODO(meowesque): Check if this is right ?
     if self.file_identifier_length % 2 == 0 {
       out[33 + self.file_identifier_length as usize] = 0;
     }
