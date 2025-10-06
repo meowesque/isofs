@@ -127,8 +127,10 @@ impl IsoWriter {
         sector_writer.write_aligned(&byte_buf[..dot_entry.extent() as usize])?;
       }
 
+      let parent_directory_entry_descriptor = parent_directory_entry_descriptor.unwrap_or(directory_descriptor);
+
       // No .. entry for the root directory.
-      if let Some(parent_directory_entry_descriptor) = parent_directory_entry_descriptor {
+      // if let Some(parent_directory_entry_descriptor) = parent_directory_entry_descriptor {
         let dotdot_entry = spec::DirectoryRecord::<spec::NoExtension> {
           extended_attribute_length: 0,
           extent_location: parent_directory_entry_descriptor.extent_location,
@@ -145,7 +147,7 @@ impl IsoWriter {
         byte_buf.resize(dotdot_entry.extent(), 0);
         dotdot_entry.serialize(&mut (), &mut byte_buf[..])?;
         sector_writer.write_aligned(&byte_buf[..dotdot_entry.extent() as usize])?;
-      }
+      // }
 
       for entry in directory_entry.entries_iter() {
         let entry_descriptor = entry.descriptor();
