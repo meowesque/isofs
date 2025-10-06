@@ -5,6 +5,8 @@ mod cli;
 fn main() {
   use isofs::writer::*;
 
+  pretty_env_logger::init();
+
   let mut iso = IsoWriter::new(WriterOptions {
     sector_size: 2048,
     standard: Standard::Iso9660,
@@ -12,11 +14,20 @@ fn main() {
 
   let mut filesystem = isofs::writer::fs::Filesystem::default();
 
-  filesystem.upsert_file("a/b/c", "./data/file1.txt").unwrap();
+  for entry in walkdir::WalkDir::new("./crates") {
+    let entry = entry.unwrap();
 
-  filesystem
-    .upsert_file("a/b/c.txt", "./data/file1.txt")
-    .unwrap();
+    if entry.file_type().is_dir() {
+      continue;
+    }
+
+    let path = entry.path().strip_prefix("./crates").unwrap();
+
+    filesystem.upsert_file(
+      path.to_string_lossy().to_string().as_str(),
+      entry.path().to_string_lossy().to_string().as_str(),
+    ).unwrap();
+  }
 
   dbg!(&filesystem);
 
@@ -30,9 +41,7 @@ fn main() {
   let file = std::fs::File::create("./data/test-iso9660.iso").unwrap();
   let mut writer = std::io::BufWriter::new(file);
 
-  iso
-    .write(&mut writer)
-    .unwrap();
+  iso.write(&mut writer).unwrap();
 
   /*let cli = cli::Cli::parse();
 
