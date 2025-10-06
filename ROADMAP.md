@@ -10,8 +10,8 @@
 - [ ] Ensure directory records don't span sector boundaries
 
 ### Path Tables
-- [ ] Generate path table entries for all directories  
-- [ ] Serialize path tables (both little endian and big endian)
+- [📝] Generate path table entries for all directories (PathTableEntry struct exists, generation TODO)
+- [📝] Serialize path tables (both little endian and big endian) (PathTable struct exists, serialization TODO)
 - [ ] Calculate correct path table sizes
 - [ ] Link path tables to Primary Volume Descriptor
 - [ ] Implement PathTableRecord creation from directory structure
@@ -116,9 +116,9 @@
 
 ## Implementation Priority
 
-1. **Critical (Phase 1)**: Fix basic directory structure and "." ".." entries
-2. **High (Phase 1-2)**: Complete ISO 9660 + Joliet for broad compatibility  
-3. **Medium (Phase 3)**: El Torito for bootable media creation
+1. **Critical (Phase 1)**: **COMPLETED** - Basic directory structure and "." ".." entries 
+2. **High (Phase 1-2)**: Complete ISO 9660 core compliance (path tables, volume calculations)
+3. **Medium (Phase 2-3)**: Joliet Unicode support and El Torito bootable media  
 4. **Low (Phase 4-5)**: Advanced features and comprehensive testing
 
 ## Current Status
@@ -128,11 +128,14 @@
 - [x] Directory hierarchy creation and upserting logic
 - [x] File content writing with LBA allocation
 - [x] Primary Volume Descriptor serialization (IsoSerialize impl exists)
+- [x] Supplementary Volume Descriptor serialization (IsoSerialize impl exists)
 - [x] Directory Record serialization for files and directories  
 - [x] Root Directory Record generation
 - [x] Basic file system writing (sectors, LBA allocation)
 - [x] Volume descriptor set terminator
 - [x] File and directory entry management
+- [x] Mandatory "." and ".." directory entries
+- [x] Complete directory structure traversal and writing
 
 ### Partially Implemented
 - [⚠️] Primary Volume Descriptor creation (basic fields, but missing calculated values)
@@ -142,7 +145,7 @@
 - [⚠️] File identifier encoding (basic ;1 versioning exists, needs refinement)
 
 ### Defined But Not Implemented
-- [📝] Supplementary Volume Descriptor (struct exists, no serialization)
+- [x] Supplementary Volume Descriptor (struct exists, serialization implemented)
 - [📝] Path Table Records (struct exists, no generation/serialization)
 - [📝] El Torito structures (all structs exist, no serialization)
 - [📝] Joliet Extensions (types defined, no implementation)
@@ -150,22 +153,24 @@
 - [📝] Rock Ridge Extensions (not started)
 
 ### In Progress
-- [ ] Directory structure fixes (current issue: only deepest paths showing)
-- [ ] "." and ".." entries implementation
+- [📝] Path table generation and writing (stub implementation exists)
+
+### Recently Fixed
+- [x] Directory structure layout (all directories and subdirectories now appear correctly)
+- [x] "." and ".." entries implementation (working as confirmed by libcdio)
+- [x] Directory hierarchy creation and file placement
 
 ### Known Issues
-- Directory layout only shows deepest paths in mount tests
-- Missing mandatory "." and ".." directory entries  
-- Incorrect data_length calculations in directory records
-- Path tables not generated or serialized
+- Path tables not generated or serialized (stubs exist)
 - PrimaryVolumeDescriptor has placeholder values instead of calculated ones
 - No volume space size calculation
 - Reader/parser functionality is stubbed (parse.rs has skeleton only)
+- File identifier handling needs refinement (version numbers, truncation)
 
 ### Not Started
-- Joliet Unicode filename support
-- El Torito bootable media
-- Path table generation and writing
+- Joliet Unicode filename support (SVD serialization exists, need parallel directory structure)
+- El Torito bootable media (structs exist, need serialization and boot catalog)
 - Multi-volume support
 - UDF bridge format
 - Comprehensive testing framework
+- Rock Ridge POSIX extensions
