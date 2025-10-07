@@ -75,6 +75,16 @@
 - [ ] Support multiple architectures in single image
 - [ ] Implement proper boot indicator flags
 
+### Isohybrid Support
+- [ ] Implement MBR (Master Boot Record) partition table embedding
+- [ ] Add isohybrid signature and magic bytes
+- [ ] Support hybrid ISO/USB bootable images
+- [ ] Implement partition entry generation for bootable sectors
+- [ ] Add GPT (GUID Partition Table) support for UEFI hybrid
+- [ ] Support Mac partition table for triple-hybrid images
+- [ ] Add checksum calculation for partition tables
+- [ ] Ensure compatibility with both optical media and USB drives
+
 ## Phase 4: Advanced Features
 
 ### Performance & Optimization
