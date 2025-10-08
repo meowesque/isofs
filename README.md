@@ -4,7 +4,7 @@
 
 `isofs` is a library for manipulating `.iso` files (ie. ISO 9660) and UDF filesystems. 
 
-## Features
+## Feature Flags
 
 * `chrono` Enables conversion with [chrono](https://crates.io/crates/chrono) types.
 * `time` Enables conversion with [time](https://crates.io/crates/time) types. 

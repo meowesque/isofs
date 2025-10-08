@@ -1,17 +1,142 @@
-//! UDF and ISO 9660 specification types including extensions such as Joliet and Rock Ridge.
+//! Loosely defined UDF and ISO 9660 specification types including extensions such as Joliet.
 
-pub trait Extension {
-  type FileIdentifier: std::fmt::Debug;
-  type DirectoryIdentifier: std::fmt::Debug;
+/// Kind of identifier. Used to determine how to interpret the bytes and debugging.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum IdentifierKind {
+  /// `[\s\!\"\%\&\'\(\)\*\+\,\-\.\/0-9A-Z\:\;\<\=\>\?\_A-Z0-9]`
+  ACharacters,
+  /// `[0-9A-Z_]`
+  DCharacters,
+  A1Characters,
+  D1Characters,
+  /// Joliet (Unicode UCS-2) encoded file identifier.
+  JolietFileIdentifier,
+  /// Joliet (Unicode UCS-2) encoded directory identifier.
+  JolietDirectoryIdentifier,
+  /// `DCharacters`/`D1Characters`.
+  StandardFileIdentifier,
+  /// `DCharacters`/`D1Characters`.
+  StandardDirectoryIdentifier,
+  /// Special case for the `.` entry in a directory.
+  CurrentDirectory,
+  /// Special case for the `..` entry in a directory.
+  ParentDirectory,
+  /// Special case for the root directory identifier.
+  RootDirectory,
 }
 
-/// No extensions; Standard ISO 9660 only.
-#[derive(Debug)]
-pub struct NoExtension;
+/// Generic representation of an identifier used within various
+/// places in the ISO 9660 and Joliet specification.
+#[derive(Debug, Clone)]
+pub struct Identifier {
+  pub(crate) kind: IdentifierKind,
+  pub(crate) data: [u8; 256],
+  /// Length in bytes.
+  pub(crate) length: u8,
+  /// Padding byte to ensure serialization compliant length.
+  pub(crate) padding: u8,
+}
 
-impl Extension for NoExtension {
-  type FileIdentifier = FileIdentifier<32>;
-  type DirectoryIdentifier = DirectoryIdentifier<31>;
+impl Identifier {
+  pub fn kind(&self) -> IdentifierKind {
+    self.kind
+  }
+
+  pub fn as_bytes(&self) -> &[u8] {
+    &self.data[..self.length as usize]
+  }
+
+  /// Special identifier representing the root directory with length of zero.
+  pub fn root_directory() -> Self {
+    Self {
+      kind: IdentifierKind::RootDirectory,
+      data: [0; 256],
+      length: 0,
+      padding: 0,
+    }
+  }
+
+  pub fn current_directory() -> Self {
+    Self {
+      kind: IdentifierKind::CurrentDirectory,
+      data: [0; 256],
+      length: 1,
+      padding: 0,
+    }
+  }
+
+  pub fn parent_directory() -> Self {
+    Self {
+      kind: IdentifierKind::ParentDirectory,
+      data: [1; 256],
+      length: 1,
+      padding: 0,
+    }
+  }
+
+  pub fn standard_directory(name: impl AsRef<str>) -> Option<Self> {
+    Some(Self {
+      kind: IdentifierKind::StandardDirectoryIdentifier,
+      data: {
+        // TODO(meowesque): Validate.
+        let mut data = [0; 256];
+        let bytes = name.as_ref().as_bytes();
+        let len = bytes.len().min(255);
+        data[..len].copy_from_slice(&bytes[..len]);
+        data
+      },
+      length: 1,
+      padding: 0,
+    })
+  }
+
+  pub fn system_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Some(Self {
+      kind: IdentifierKind::A1Characters,
+      data: {
+        // TODO(meowesque): Validate.
+        let mut data = [0; 256];
+        let bytes = name.as_ref().as_bytes();
+        let len = bytes.len().min(255);
+        data[..len].copy_from_slice(&bytes[..len]);
+        data
+      },
+      length: 1,
+      padding: 0,
+    })
+  }
+
+  pub fn volume_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Some(Self {
+      kind: IdentifierKind::D1Characters,
+      data: {
+        // TODO(meowesque): Validate.
+        let mut data = [0; 256];
+        let bytes = name.as_ref().as_bytes();
+        let len = bytes.len().min(255);
+        data[..len].copy_from_slice(&bytes[..len]);
+        data
+      },
+      length: 1,
+      padding: 0,
+    })
+  }
+
+  pub fn volume_set_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Some(Self {
+      kind: IdentifierKind::D1Characters,
+      data: {
+        // TODO(meowesque): Validate.
+        let mut data = [0; 256];
+        let bytes = name.as_ref().as_bytes();
+        let len = bytes.len().min(255);
+        data[..len].copy_from_slice(&bytes[..len]);
+        data
+      },
+      length: name.len().min(128) as u8,
+      padding: 0,
+    })
+  }
 }
 
 #[derive(Debug)]
@@ -24,58 +149,6 @@ pub enum JolietLevel {
   Level3,
 }
 
-/// Microsoft Joliet extension.
-#[derive(Debug)]
-pub struct JolietExtension {
-  pub level: JolietLevel,
-}
-
-impl Extension for JolietExtension {
-  type FileIdentifier = JolietFileIdentifier;
-  type DirectoryIdentifier = JolietDirectoryIdentifier;
-}
-
-/// `[\s\!\"\%\&\'\(\)\*\+\,\-\.\/0-9A-Z\:\;\<\=\>\?\_A-Z0-9]`
-#[derive(Debug)]
-pub struct ACharacters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
-
-impl<const LENGTH: usize> ACharacters<LENGTH> {
-  /// Convert from a byte slice, truncating or zero-padding as necessary.
-  pub fn from_bytes_truncated(bytes: &[u8]) -> Self {
-    // TODO(meowesque): Validate characters?
-    let mut cs = [0u8; LENGTH];
-    cs[..LENGTH.min(bytes.len())].copy_from_slice(&bytes[..LENGTH.min(bytes.len())]);
-    Self(cs)
-  }
-}
-
-/// `[0-9A-Z_]``
-#[derive(Debug)]
-pub struct DCharacters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
-
-impl<const LENGTH: usize> DCharacters<LENGTH> {
-  const CHARACTER_SET: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_";
-
-  /// Convert from a byte slice, truncating or zero-padding as necessary.
-  pub fn from_bytes_truncated(bytes: &[u8]) -> Option<Self> {
-    if !bytes.iter().all(|b| Self::CHARACTER_SET.contains(b)) {
-      return None;
-    }
-
-    let mut cs = [0u8; LENGTH];
-
-    cs[..LENGTH.min(bytes.len())].copy_from_slice(&bytes[..LENGTH.min(bytes.len())]);
-
-    Some(Self(cs))
-  }
-}
-
-#[derive(Debug)]
-pub struct A1Characters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
-
-#[derive(Debug)]
-pub struct D1Characters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
-
 /// Escape sequences conforming to ISO/IEC 2022, including the escape characters.
 ///
 /// If all the bytes of the escape sequences are zero, it shall mean that the set
@@ -86,12 +159,6 @@ pub struct EscapeSequences<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 /// Escape sequences conforming to ISO/IEC 2022, excluding the escape characters.
 #[derive(Debug)]
 pub struct VariadicEscapeSequences(pub(crate) Vec<u8>);
-
-#[derive(Debug)]
-pub struct JolietFileIdentifier(pub(crate) [u16; 64]);
-
-#[derive(Debug)]
-pub struct JolietDirectoryIdentifier(pub(crate) [u16; 64]);
 
 bitflags::bitflags! {
   #[derive(Debug)]
@@ -149,39 +216,6 @@ bitflags::bitflags! {
     const RESERVED_5 = 1 << 5;
     const RESERVED_6 = 1 << 6;
     const RESERVED_7 = 1 << 7;
-  }
-}
-
-#[derive(Debug)]
-pub struct FileIdentifier<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
-
-impl<const LENGTH: usize> FileIdentifier<LENGTH> {
-  /// Convert from a byte slice, truncating or zero-padding as necessary.
-  pub fn from_bytes_truncated(bytes: &[u8]) -> Self {
-    // TODO(meowesque): Validate characters?
-    let mut cs = [0u8; LENGTH];
-    cs[..LENGTH.min(bytes.len())].copy_from_slice(&bytes[..LENGTH.min(bytes.len())]);
-    Self(cs)
-  }
-}
-
-/// `DCharacters`/`D1Characters`.
-#[derive(Debug)]
-pub struct DirectoryIdentifier<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
-
-impl<const LENGTH: usize> DirectoryIdentifier<LENGTH> {
-  /// Convert from a byte slice, truncating or zero-padding as necessary.
-  pub fn from_bytes_truncated(bytes: &[u8]) -> Option<Self> {
-    // TODO(meowesque): Validate characters?
-    /*if !bytes.iter().all(|b| DCharacters::<LENGTH>::CHARACTER_SET.contains(b)) {
-      return None;
-    }*/
-
-    let mut cs = [0u8; LENGTH];
-
-    cs[..LENGTH.min(bytes.len())].copy_from_slice(&bytes[..LENGTH.min(bytes.len())]);
-
-    Some(Self(cs))
   }
 }
 
@@ -460,8 +494,8 @@ impl<Tz: chrono::TimeZone> Into<chrono::DateTime<Tz>> for NumericalDate {
 pub struct PrimaryVolumeDescriptor {
   pub standard_identifier: StandardIdentifier,
   pub version: VolumeDescriptorVersion,
-  pub system_identifier: ACharacters<32>,
-  pub volume_identifier: DCharacters<32>,
+  pub system_identifier: Identifier,
+  pub volume_identifier: Identifier,
   pub volume_space_size: u32,
   pub volume_set_size: u16,
   pub volume_sequence_number: u16,
@@ -472,13 +506,13 @@ pub struct PrimaryVolumeDescriptor {
   pub type_m_path_table_location: u32,
   pub optional_type_m_path_table_location: u32,
   pub root_directory_record: RootDirectoryRecord,
-  pub volume_set_identifier: DCharacters<128>,
-  pub publisher_identifier: ACharacters<128>,
-  pub data_preparer_identifier: ACharacters<128>,
-  pub application_identifier: ACharacters<128>,
-  pub copyright_file_identifier: DCharacters<37>, // Separator 1 and 2
-  pub abstract_file_identifier: DCharacters<37>,  // Separator 1 and 2
-  pub bibliographic_file_identifier: DCharacters<37>, // Separator 1 and 2
+  pub volume_set_identifier: Identifier,
+  pub publisher_identifier: Identifier,
+  pub data_preparer_identifier: Identifier,
+  pub application_identifier: Identifier,
+  pub copyright_file_identifier: Identifier,
+  pub abstract_file_identifier: Identifier,
+  pub bibliographic_file_identifier: Identifier,
   pub creation_date: DigitsDate,
   pub modification_date: DigitsDate,
   pub expiration_date: DigitsDate,
@@ -492,8 +526,8 @@ pub struct SupplementaryVolumeDescriptor {
   pub standard_identifier: StandardIdentifier,
   pub version: VolumeDescriptorVersion,
   pub volume_flags: VolumeFlags,
-  pub system_identifier: A1Characters<32>,
-  pub volume_identifier: D1Characters<32>,
+  pub system_identifier: Identifier,
+  pub volume_identifier: Identifier,
   pub volume_space_size: u32,
   pub escape_sequences: EscapeSequences<32>,
   pub volume_set_size: u16,
@@ -505,13 +539,13 @@ pub struct SupplementaryVolumeDescriptor {
   pub type_m_path_table_location: u32,
   pub optional_type_m_path_table_location: u32,
   pub root_directory_record: RootDirectoryRecord,
-  pub volume_set_identifier: D1Characters<128>,
-  pub publisher_identifier: A1Characters<128>,
-  pub data_preparer_identifier: A1Characters<128>,
-  pub application_identifier: A1Characters<128>,
-  pub copyright_file_identifier: D1Characters<37>, // Separator 1 and 2
-  pub abstract_file_identifier: D1Characters<37>,  // Separator 1 and 2
-  pub bibliographic_file_identifier: D1Characters<37>, // Separator 1 and 2
+  pub volume_set_identifier: Identifier,
+  pub publisher_identifier: Identifier,
+  pub data_preparer_identifier: Identifier,
+  pub application_identifier: Identifier,
+  pub copyright_file_identifier: Identifier,
+  pub abstract_file_identifier: Identifier,
+  pub bibliographic_file_identifier: Identifier,
   pub creation_date: DigitsDate,
   pub modification_date: DigitsDate,
   pub expiration_date: DigitsDate,
@@ -524,8 +558,8 @@ pub struct SupplementaryVolumeDescriptor {
 pub struct VolumePartitionDescriptor {
   pub standard_identifier: StandardIdentifier,
   pub version: VolumeDescriptorVersion,
-  pub system_identifier: ACharacters<32>,
-  pub volume_partition_identifier: DCharacters<32>,
+  pub system_identifier: Identifier,
+  pub volume_partition_identifier: Identifier,
   pub volume_partition_location: u32,
   pub volume_partition_size: u32,
 }
@@ -534,7 +568,7 @@ pub struct VolumePartitionDescriptor {
 pub struct VolumeDescriptorSetTerminator;
 
 #[derive(Debug)]
-pub struct DirectoryRecord<Ext: Extension> {
+pub struct DirectoryRecord {
   pub extended_attribute_length: u8,
   pub extent_location: u32,
   pub data_length: u32,
@@ -544,7 +578,7 @@ pub struct DirectoryRecord<Ext: Extension> {
   pub interleave_gap_size: u8,
   pub volume_sequence_number: u16,
   pub file_identifier_length: u8,
-  pub file_identifier: Ext::FileIdentifier,
+  pub file_identifier: Identifier,
 }
 
 /// Root directory record as found in `SupplementaryVolumeDescriptor` and
@@ -562,12 +596,13 @@ pub struct RootDirectoryRecord {
 }
 
 #[derive(Debug)]
-pub struct PathTableRecord<Ext: Extension> {
+pub struct PathTableRecord {
+  // TODO(meowesque): We can get rid of this field by using the length of `directory_identifier`.
   pub directory_identifier_length: u8,
   pub extended_attribute_record_length: u8,
   pub extent_location: u32,
   pub parent_directory_number: u16,
-  pub directory_identifier: Ext::DirectoryIdentifier,
+  pub directory_identifier: Identifier,
 }
 
 #[derive(Debug)]
