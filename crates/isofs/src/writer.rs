@@ -1,9 +1,8 @@
 //! High-level interface for building ISO 9660 filesystems with optional Joliet extensions.
 
 use crate::{
-  lba::LbaAllocator,
-  serialize::IsoSerialize,
-  spec::{self, Identifier},
+  serialize::{self, IsoSerialize},
+  spec::{self, EscapeSequences, Identifier},
 };
 
 use super::prelude::*;
@@ -14,6 +13,83 @@ use std::{
 };
 
 type ArrayStringU255 = arraystring::ArrayString<arraystring::typenum::U255>;
+
+struct SectorWriter<Storage> {
+  storage: Storage,
+  sector_ix: u64,
+  sector_size: u64,
+  bytes_offset: u64,
+}
+
+impl<Storage> SectorWriter<Storage>
+where
+  Storage: std::io::Write + std::io::Seek,
+{
+  fn new(storage: Storage, sector_offset: u64, sector_size: u64) -> Self {
+    Self {
+      storage,
+      sector_ix: sector_offset,
+      sector_size,
+      bytes_offset: 0,
+    }
+  }
+
+  /// Write data to the current sector, padding with zeros if necessary.
+  ///
+  /// If the buffer is larger than the sector size, it will be truncated.
+  fn write_aligned(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    let buf = &buf[..buf.len().min(self.sector_size as usize)];
+
+    if self.bytes_offset + buf.len() as u64 > self.sector_size {
+      // Move to the next sector if we don't have enough space.
+
+      self.sector_ix += 1;
+      self.bytes_offset = 0;
+
+      self
+        .storage
+        .seek(std::io::SeekFrom::Start(self.sector_ix * self.sector_size))?;
+    } else {
+      self.storage.seek(std::io::SeekFrom::Start(
+        self.sector_ix * self.sector_size + self.bytes_offset,
+      ))?;
+    }
+
+    log::info!(
+      "Writing {} bytes at sector {}, offset {}",
+      buf.len(),
+      self.sector_ix,
+      self.bytes_offset
+    );
+
+    let written = self.storage.write(buf)?;
+
+    self.bytes_offset += written as u64;
+
+    Ok(written)
+  }
+}
+
+struct LbaAllocator {
+  sector_size: u32,
+  next_lba: u32,
+}
+
+impl LbaAllocator {
+  fn new(sector_size: u32, offset: u32) -> Self {
+    Self {
+      sector_size,
+      next_lba: offset,
+    }
+  }
+
+  fn allocate(&mut self, size: u32) -> u32 {
+    let lba = self.next_lba;
+    let sectors = (size + self.sector_size - 1) / self.sector_size;
+    self.next_lba += sectors;
+    lba
+  }
+}
 
 struct PathTable {
   size: u32,
@@ -27,15 +103,15 @@ impl PathTable {
       parent_ix: u16,
       records: &mut Vec<spec::PathTableRecord>,
     ) -> Option<()> {
-      let record = dir.directory_record();
       let ix = records.len() as u16 + 1; // 1-based index
+
       let record = spec::PathTableRecord {
         directory_identifier_length: dir.name.len() as u8,
         extended_attribute_record_length: 0,
         extent_location: dir.data_lba?,
         parent_directory_number: parent_ix,
         // TODO(meowesque): Handle different identifier types (e.g., Joliet).
-        directory_identifier: spec::Identifier::standard_directory(&dir.name)?,
+        directory_identifier: spec::Identifier::standard_directory_identifier(&dir.name)?,
       };
 
       records.push(record);
@@ -134,21 +210,26 @@ pub struct FileEntry {
 
 impl FileEntry {
   pub(crate) fn directory_record(&self) -> spec::DirectoryRecord {
+    let file_identifier = spec::Identifier::standard_file_identifier(&self.name)
+      // TODO(meowesque): Handle different identifier types (e.g., Joliet).
+      .expect("File name should be valid");
+
     spec::DirectoryRecord {
       extended_attribute_length: 0,
       extent_location: self.data_lba.unwrap_or(0),
       data_length: self.content.extent() as u32,
-      recording_date: todo!(),
-      file_flags: todo!(),
-      file_unit_size: todo!(),
-      interleave_gap_size: todo!(),
-      volume_sequence_number: todo!(),
-      file_identifier_length: todo!(),
-      file_identifier: todo!(),
+      recording_date: chrono::Utc::now().into(),
+      file_flags: spec::FileFlags::empty(),
+      file_unit_size: 0,
+      interleave_gap_size: 0,
+      volume_sequence_number: 0,
+      file_identifier_length: file_identifier.extent() as u8,
+      // TODO(meowesque): Handle different identifier types (e.g., Joliet).
+      file_identifier,
     }
   }
 
-  pub(crate) fn allocate_lbas(&mut self, allocator: &mut LbaAllocator) {
+  fn allocate_lbas(&mut self, allocator: &mut LbaAllocator) {
     self.data_lba = Some(allocator.allocate(self.directory_record().data_length));
   }
 }
@@ -207,6 +288,10 @@ impl DirectoryEntry {
   }
 
   pub(crate) fn directory_record(&self) -> spec::DirectoryRecord {
+    let file_identifier = spec::Identifier::standard_directory_identifier(&self.name)
+      // TODO(meowesque): Handle different identifier types (e.g., Joliet).
+      .expect("Directory name should be valid");
+
     spec::DirectoryRecord {
       extended_attribute_length: 0,
       extent_location: self.data_lba.unwrap_or(0),
@@ -222,13 +307,14 @@ impl DirectoryEntry {
           .sum::<u32>()
           // Plus 2 entries for `.` and `..`
           + (2 * 34),
-      recording_date: todo!(),
-      file_flags: todo!(),
-      file_unit_size: todo!(),
-      interleave_gap_size: todo!(),
-      volume_sequence_number: todo!(),
-      file_identifier_length: todo!(),
-      file_identifier: todo!(),
+      recording_date: chrono::Utc::now().into(),
+      file_flags: spec::FileFlags::DIRECTORY,
+      file_unit_size: 0,
+      interleave_gap_size: 0,
+      volume_sequence_number: 0,
+      file_identifier_length: file_identifier.extent() as u8,
+      // TODO(meowesque): Handle different identifier types (e.g., Joliet).
+      file_identifier,
     }
   }
 
@@ -389,11 +475,11 @@ impl RootDirectory {
           .sum::<u32>()
           // Plus 2 entries for `.` and `..`
           + (2 * 34),
-      recording_date: todo!(),
-      file_flags: todo!(),
-      file_unit_size: todo!(),
-      interleave_gap_size: todo!(),
-      volume_sequence_number: todo!(),
+      recording_date: chrono::Utc::now().into(),
+      file_flags: spec::FileFlags::DIRECTORY,
+      file_unit_size: 0,
+      interleave_gap_size: 0,
+      volume_sequence_number: 0,
     }
   }
 
@@ -478,12 +564,12 @@ pub enum OnFileConflict {
 struct BootRecord {}
 
 #[derive(Debug, Clone)]
-pub struct IsoBuilderOptions {
+pub struct IsoWriterOptions {
   pub joliet: bool,
   pub sector_size: u32,
 }
 
-impl Default for IsoBuilderOptions {
+impl Default for IsoWriterOptions {
   fn default() -> Self {
     Self {
       joliet: true,
@@ -493,14 +579,14 @@ impl Default for IsoBuilderOptions {
 }
 
 #[derive(Debug)]
-pub struct IsoBuilder {
-  options: IsoBuilderOptions,
+pub struct IsoWriter {
+  options: IsoWriterOptions,
   filesystem: Filesystem,
   boot_record: Option<BootRecord>,
 }
 
-impl IsoBuilder {
-  pub fn new(options: IsoBuilderOptions) -> Self {
+impl IsoWriter {
+  pub fn new(options: IsoWriterOptions) -> Self {
     Self {
       options,
       filesystem: Default::default(),
@@ -508,7 +594,7 @@ impl IsoBuilder {
     }
   }
 
-  pub fn options(&self) -> &IsoBuilderOptions {
+  pub fn options(&self) -> &IsoWriterOptions {
     &self.options
   }
 
@@ -524,7 +610,7 @@ impl IsoBuilder {
   }
 
   /// Builds the ISO image according to the current configuration.
-  pub fn build<W: std::io::Write + std::io::Seek>(&mut self, writer: W) -> Result<()> {
+  pub fn finalize<W: std::io::Write + std::io::Seek>(mut self, mut writer: W) -> Result<()> {
     // 1. Allocate LBAs for the main volume's filesystem.
 
     let mut lba_allocator = LbaAllocator::new(
@@ -573,7 +659,8 @@ impl IsoBuilder {
       application_identifier: spec::Identifier::application_identifier("ISOFS").unwrap(),
       copyright_file_identifier: spec::Identifier::copyright_file_identifier("ISOFS").unwrap(),
       abstract_file_identifier: spec::Identifier::abstract_file_identifier("ISOFS").unwrap(),
-      bibliographic_file_identifier: spec::Identifier::bibliographic_file_identifier("ISOFS").unwrap(),
+      bibliographic_file_identifier: spec::Identifier::bibliographic_file_identifier("ISOFS")
+        .unwrap(),
       creation_date: chrono::Utc::now().into(),
       modification_date: chrono::Utc::now().into(),
       expiration_date: chrono::Utc::now().into(),
@@ -582,18 +669,19 @@ impl IsoBuilder {
       application_use: [0; 512],
     };
 
+    /*
     let supplementary_volume_descriptor = spec::SupplementaryVolumeDescriptor {
       standard_identifier: spec::StandardIdentifier::Cd001,
       version: spec::VolumeDescriptorVersion::Standard,
       volume_flags: spec::VolumeFlags::empty(),
-      system_identifier: todo!(),
-      volume_identifier: todo!(),
-      volume_space_size: todo!(),
-      escape_sequences: todo!(),
-      volume_set_size: todo!(),
-      volume_sequence_number: todo!(),
-      logical_block_size: todo!(),
-      path_table_size: todo!(),
+      system_identifier: spec::Identifier::system_identifier("LINUX").unwrap(),
+      volume_identifier: spec::Identifier::volume_identifier("ISOFS").unwrap(),
+      volume_space_size: 0,
+      escape_sequences: EscapeSequences::joliet_level_3(),
+      volume_set_size: 0,
+      volume_sequence_number: 0,
+      logical_block_size: self.options.sector_size as u16,
+      path_table_size: path_table.joliet_size,
       type_l_path_table_location: todo!(),
       optional_type_l_path_table_location: todo!(),
       type_m_path_table_location: todo!(),
@@ -612,8 +700,300 @@ impl IsoBuilder {
       effective_date: todo!(),
       file_structure_version: todo!(),
       application_use: todo!(),
-    };
+    }; */
 
-    todo!()
+    // TODO(meowesque): Add supplementary volume descriptor if Joliet is enabled.
+
+    {
+      let mut descriptor_bytes = [0u8; 2048];
+
+      // 3.1. Write Primary Volume Descriptor
+
+      primary_volume_descriptor.serialize(&mut (), &mut descriptor_bytes)?;
+      writer.seek(std::io::SeekFrom::Start(
+        16 * self.options.sector_size as u64,
+      ))?;
+      writer.write_all(&descriptor_bytes)?;
+
+      // 3.2. Write Supplementary Volume Descriptor (if Joliet is enabled)
+
+      if self.options.joliet {
+        // TODO(meowesque)
+      }
+
+      // 3.3. Write Boot Record (if present)
+
+      if let Some(_boot_record) = &self.boot_record {
+        // TODO(meowesque)
+      }
+
+      // 3.4. Write Volume Descriptor Set Terminator
+
+      spec::VolumeDescriptorSetTerminator.serialize(&mut (), &mut descriptor_bytes)?;
+      writer.seek(std::io::SeekFrom::Start(
+        (16 + 1 + self.options.joliet as u64 + self.boot_record.is_some() as u64)
+          * self.options.sector_size as u64,
+      ))?;
+      writer.write_all(&descriptor_bytes)?;
+    }
+
+    // 4. Write Path Table(s)
+
+    // 4.1 Write Type L Path Table
+
+    {
+      let mut record_bytes = vec![];
+      let mut sector_writer = SectorWriter::new(
+        &mut writer,
+        path_table_type_l_lba as u64,
+        self.options.sector_size as u64,
+      );
+
+      for record in &path_table.records {
+        log::debug!("Writing (type L) path table record: {:?}", record);
+
+        record_bytes.resize(record.extent(), 0);
+        record.serialize(&mut serialize::Endianness::Little, &mut record_bytes)?;
+        sector_writer.write_aligned(&record_bytes)?;
+        record_bytes.clear();
+      }
+    }
+
+    // 4.2 Write Type M Path Table
+
+    {
+      let mut record_bytes = vec![];
+      let mut sector_writer = SectorWriter::new(
+        &mut writer,
+        path_table_type_m_lba as u64,
+        self.options.sector_size as u64,
+      );
+
+      for record in &path_table.records {
+        log::debug!("Writing (type M) path table record: {:?}", record);
+
+        record_bytes.resize(record.extent(), 0);
+        record.serialize(&mut serialize::Endianness::Big, &mut record_bytes)?;
+        sector_writer.write_aligned(&record_bytes)?;
+        record_bytes.clear();
+      }
+    }
+
+    // 5. Write Directory Records and File Data
+
+    fn write_file_entry<W: std::io::Write + std::io::Seek>(
+      writer: &mut W,
+      file: &FileEntry,
+      options: &IsoWriterOptions,
+    ) -> Result<()> {
+      let Some(lba) = file.data_lba else {
+        unreachable!("File LBA should have been allocated by now");
+      };
+
+      log::debug!("Writing file content: {:?}", file);
+
+      writer.seek(std::io::SeekFrom::Start(
+        lba as u64 * options.sector_size as u64,
+      ))?;
+
+      match file.content.0.as_ref() {
+        FileEntryContentInner::File { handle, .. } => {
+          std::io::copy(&mut std::io::BufReader::new(handle), writer)?;
+        }
+        FileEntryContentInner::InMemory(data) => writer.write_all(data)?,
+      }
+
+      Ok(())
+    }
+
+    fn write_directory_entry<W: std::io::Write + std::io::Seek>(
+      writer: &mut W,
+      parent_dir_extent_location: u32,
+      parent_dir_data_length: u32,
+      dir: &DirectoryEntry,
+      options: &IsoWriterOptions,
+    ) -> Result<()> {
+      let Some(lba) = dir.data_lba else {
+        unreachable!("Directory LBA should have been allocated by now");
+      };
+      let mut sector_writer =
+        SectorWriter::new(&mut *writer, lba as u64, options.sector_size as u64);
+      let dir_record = dir.directory_record();
+      let mut buf = vec![];
+
+      log::debug!("Writing directory record: {:?}", dir_record);
+
+      {
+        let dot_entry = spec::DirectoryRecord {
+          extended_attribute_length: 0,
+          extent_location: lba,
+          data_length: dir_record.data_length,
+          recording_date: chrono::Utc::now().into(),
+          file_flags: spec::FileFlags::DIRECTORY,
+          file_unit_size: 0,
+          interleave_gap_size: 0,
+          volume_sequence_number: 1,
+          file_identifier_length: 1,
+          file_identifier: spec::Identifier::current_directory(),
+        };
+
+        buf.resize(dot_entry.extent(), 0);
+        dot_entry.serialize(&mut (), &mut buf)?;
+        sector_writer.write_aligned(&buf)?;
+        buf.clear();
+      }
+
+      {
+        let dotdot_entry = spec::DirectoryRecord {
+          extended_attribute_length: 0,
+          extent_location: parent_dir_extent_location,
+          data_length: parent_dir_data_length,
+          recording_date: chrono::Utc::now().into(),
+          file_flags: spec::FileFlags::DIRECTORY,
+          file_unit_size: 0,
+          interleave_gap_size: 0,
+          volume_sequence_number: 1,
+          file_identifier_length: 1,
+          file_identifier: spec::Identifier::parent_directory(),
+        };
+
+        buf.resize(dotdot_entry.extent(), 0);
+        dotdot_entry.serialize(&mut (), &mut buf)?;
+        sector_writer.write_aligned(&buf)?;
+        buf.clear();
+      }
+
+      for subdir in dir.dirs.values() {
+        let subdir_record = subdir.directory_record();
+
+        log::debug!("Writing directory record: {:?}", subdir_record);
+
+        buf.resize(subdir_record.extent(), 0);
+        subdir_record.serialize(&mut (), &mut buf)?;
+        sector_writer.write_aligned(&buf)?;
+        buf.clear();
+      }
+
+      for file in dir.files.values() {
+        let file_record = file.directory_record();
+
+        log::debug!("Writing file record: {:?}", file_record);
+
+        buf.resize(file_record.extent(), 0);
+        file_record.serialize(&mut (), &mut buf)?;
+        sector_writer.write_aligned(&buf)?;
+        buf.clear();
+      }
+
+      for subdir in dir.dirs.values() {
+        write_directory_entry(&mut *writer, lba, dir_record.data_length, subdir, options)?;
+      }
+
+      for file in dir.files.values() {
+        write_file_entry(&mut *writer, file, options)?;
+      }
+
+      Ok(())
+    }
+
+    fn write_root_directory<W: std::io::Write + std::io::Seek>(
+      writer: &mut W,
+      root: &RootDirectory,
+      options: &IsoWriterOptions,
+    ) -> Result<()> {
+      let Some(lba) = root.data_lba else {
+        unreachable!("Directory LBA should have been allocated by now");
+      };
+      let mut sector_writer =
+        SectorWriter::new(&mut *writer, lba as u64, options.sector_size as u64);
+      let root_record = root.root_directory_record();
+      let mut buf = vec![];
+
+      log::debug!("Writing root directory record: {:?}", root_record);
+
+      {
+        let dot_entry = spec::DirectoryRecord {
+          extended_attribute_length: 0,
+          extent_location: lba,
+          data_length: root_record.data_length,
+          recording_date: chrono::Utc::now().into(),
+          file_flags: spec::FileFlags::DIRECTORY,
+          file_unit_size: 0,
+          interleave_gap_size: 0,
+          volume_sequence_number: 1,
+          file_identifier_length: 1,
+          file_identifier: spec::Identifier::current_directory(),
+        };
+
+        buf.resize(dot_entry.extent(), 0);
+        dot_entry.serialize(&mut (), &mut buf)?;
+        sector_writer.write_aligned(&buf)?;
+        buf.clear();
+      }
+
+      {
+        let dotdot_entry = spec::DirectoryRecord {
+          extended_attribute_length: 0,
+          extent_location: root_record.extent_location,
+          data_length: root_record.data_length,
+          recording_date: chrono::Utc::now().into(),
+          file_flags: spec::FileFlags::DIRECTORY,
+          file_unit_size: 0,
+          interleave_gap_size: 0,
+          volume_sequence_number: 1,
+          file_identifier_length: 1,
+          file_identifier: spec::Identifier::parent_directory(),
+        };
+
+        buf.resize(dotdot_entry.extent(), 0);
+        dotdot_entry.serialize(&mut (), &mut buf)?;
+        sector_writer.write_aligned(&buf)?;
+        buf.clear();
+      }
+
+      for subdir in root.dirs.values() {
+        let subdir_record = subdir.directory_record();
+
+        log::debug!("Writing root directory record: {:?}", subdir_record);
+
+        buf.resize(subdir_record.extent(), 0);
+        subdir_record.serialize(&mut (), &mut buf)?;
+        sector_writer.write_aligned(&buf)?;
+        buf.clear();
+      }
+
+      for file in root.files.values() {
+        let file_record = file.directory_record();
+
+        log::debug!("Writing root file record: {:?}", file_record);
+
+        buf.resize(file_record.extent(), 0);
+        file_record.serialize(&mut (), &mut buf)?;
+        sector_writer.write_aligned(&buf)?;
+        buf.clear();
+      }
+
+      for dir in root.dirs.values() {
+        write_directory_entry(
+          &mut *writer,
+          root_record.extent_location,
+          root_record.data_length,
+          dir,
+          options,
+        )?;
+      }
+
+      for file in root.files.values() {
+        write_file_entry(writer, file, options)?;
+      }
+
+      Ok(())
+    }
+
+    write_root_directory(&mut writer, &self.filesystem.root, &self.options)?;
+
+    // 6. Done!
+
+    Ok(())
   }
 }

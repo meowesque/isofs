@@ -38,12 +38,11 @@ pub struct Identifier {
 }
 
 impl Identifier {
+  const A_CHARACTERS: &[u8] = b" !\"%&'()*+,-./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ:;<=>?";
+  const D_CHARACTERS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+
   pub fn kind(&self) -> IdentifierKind {
     self.kind
-  }
-
-  pub fn as_bytes(&self) -> &[u8] {
-    &self.data[..self.length as usize]
   }
 
   /// Special identifier representing the root directory with length of zero.
@@ -56,6 +55,7 @@ impl Identifier {
     }
   }
 
+  /// Special identifier representing the current directory with length of one.
   pub fn current_directory() -> Self {
     Self {
       kind: IdentifierKind::CurrentDirectory,
@@ -65,6 +65,7 @@ impl Identifier {
     }
   }
 
+  /// Special identifier representing the parent directory with length of one.
   pub fn parent_directory() -> Self {
     Self {
       kind: IdentifierKind::ParentDirectory,
@@ -74,67 +75,214 @@ impl Identifier {
     }
   }
 
-  pub fn standard_directory(name: impl AsRef<str>) -> Option<Self> {
+  pub fn standard_directory_identifier(name: impl AsRef<str>) -> Option<Self> {
+    let mut data: [u8; 256] = [0; 256];
+
+    let convert = |b: u8| {
+      let b = b.to_ascii_uppercase();
+    
+      match b {
+        // TODO(meowesque): More characters?
+        b'-' => b'_',
+        _ => b
+      }
+    };
+
+    for (ix, &b) in name.as_ref().as_bytes().iter().enumerate() {
+      let b = convert(b);
+
+      if ix >= 31 || !Self::D_CHARACTERS.contains(&b) {
+        // TODO(meowesque): Provide better error reporting.
+        return None;
+      }
+
+      data[ix] = b;
+    }
+
     Some(Self {
       kind: IdentifierKind::StandardDirectoryIdentifier,
-      data: {
-        // TODO(meowesque): Validate.
-        let mut data = [0; 256];
-        let bytes = name.as_ref().as_bytes();
-        let len = bytes.len().min(255);
-        data[..len].copy_from_slice(&bytes[..len]);
-        data
-      },
-      length: 1,
+      data,
+      length: name.as_ref().len() as u8,
+      padding: 0,
+    })
+  }
+
+  pub fn standard_file_identifier(full: impl AsRef<str>) -> Option<Self> {
+    let full = dbg!(full.as_ref());
+
+    if dbg!(full.len() > 35 || (!full.contains('.') && full.len() > 34)) {
+      // TODO(meowesque): Provide better error reporting.
+      return None;
+    }
+
+    let stem = dbg!(full.split('.').next()?); // TODO(meowesque): Provide better error reporting.
+    let ext = dbg!(full.rsplit('.').next().unwrap_or(""));
+
+    // TODO(meowesque): Maximum compatibility mode only allows 3 character extensions.
+    /*
+    if ext.len() > 3 {
+      // TODO(meowesque): Provide better error reporting.
+      return None;
+    } */
+
+    let mut new_name = [0u8; 37];
+
+    for (ix, &b) in stem.as_bytes().iter().enumerate() {
+      if !Self::D_CHARACTERS.contains(&b.to_ascii_uppercase()) {
+        dbg!(b as char);
+        return None;
+      }
+
+      new_name[ix] = b.to_ascii_uppercase();
+    }
+
+    new_name[stem.len()] = b'.';
+
+    for (ix, &b) in ext.as_bytes().iter().enumerate() {
+      if !Self::D_CHARACTERS.contains(&b.to_ascii_uppercase()) {
+        dbg!(b as char);
+        return None;
+      }
+
+      new_name[stem.len() + 1 + ix] = b.to_ascii_uppercase();
+    }
+
+    // TODO(meowesque): Handle revision numbers.
+    new_name[stem.len() + 1 + ext.len()..stem.len() + 1 + ext.len() + 2].copy_from_slice(b";1");
+
+    let mut data = [0u8; 256];
+
+    data[..new_name.len()].copy_from_slice(&new_name);
+
+    Some(Self {
+      kind: IdentifierKind::StandardFileIdentifier,
+      data,
+      length: (stem.len() + 1 + ext.len() + 2) as u8,
       padding: 0,
     })
   }
 
   pub fn system_identifier(name: impl AsRef<str>) -> Option<Self> {
-    Some(Self {
-      kind: IdentifierKind::A1Characters,
-      data: {
-        // TODO(meowesque): Validate.
-        let mut data = [0; 256];
-        let bytes = name.as_ref().as_bytes();
-        let len = bytes.len().min(255);
-        data[..len].copy_from_slice(&bytes[..len]);
-        data
-      },
-      length: 1,
-      padding: 0,
-    })
+    Self::from_parts_ascii(
+      IdentifierKind::ACharacters,
+      name,
+      32,
+      |x| Self::A_CHARACTERS.contains(&x),
+      b' ',
+    )
   }
 
   pub fn volume_identifier(name: impl AsRef<str>) -> Option<Self> {
-    Some(Self {
-      kind: IdentifierKind::D1Characters,
-      data: {
-        // TODO(meowesque): Validate.
-        let mut data = [0; 256];
-        let bytes = name.as_ref().as_bytes();
-        let len = bytes.len().min(255);
-        data[..len].copy_from_slice(&bytes[..len]);
-        data
-      },
-      length: 1,
-      padding: 0,
-    })
+    Self::from_parts_ascii(
+      IdentifierKind::DCharacters,
+      name,
+      32,
+      |x| Self::A_CHARACTERS.contains(&x),
+      b' ',
+    )
   }
 
   pub fn volume_set_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Self::from_parts_ascii(
+      IdentifierKind::DCharacters,
+      name,
+      128,
+      |x| Self::A_CHARACTERS.contains(&x),
+      b' ',
+    )
+  }
+
+  pub fn publisher_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Self::from_parts_ascii(
+      IdentifierKind::DCharacters,
+      name,
+      128,
+      |x| Self::A_CHARACTERS.contains(&x),
+      b' ',
+    )
+  }
+
+  pub fn data_preparer_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Self::from_parts_ascii(
+      IdentifierKind::DCharacters,
+      name,
+      128,
+      |x| Self::A_CHARACTERS.contains(&x),
+      b' ',
+    )
+  }
+
+  pub fn application_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Self::from_parts_ascii(
+      IdentifierKind::ACharacters,
+      name,
+      128,
+      |x| Self::A_CHARACTERS.contains(&x),
+      b' ',
+    )
+  }
+
+  pub fn copyright_file_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Self::from_parts_ascii(
+      IdentifierKind::DCharacters,
+      name,
+      37,
+      |x| Self::D_CHARACTERS.contains(&x),
+      0,
+    )
+  }
+
+  pub fn abstract_file_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Self::from_parts_ascii(
+      IdentifierKind::DCharacters,
+      name,
+      37,
+      |x| Self::D_CHARACTERS.contains(&x),
+      0,
+    )
+  }
+
+  pub fn bibliographic_file_identifier(name: impl AsRef<str>) -> Option<Self> {
+    Self::from_parts_ascii(
+      IdentifierKind::DCharacters,
+      name,
+      37,
+      |x| Self::D_CHARACTERS.contains(&x),
+      0,
+    )
+  }
+
+  fn from_parts_ascii(
+    kind: IdentifierKind,
+    s: impl AsRef<str>,
+    max: u8,
+    charset: fn(u8) -> bool,
+    padding: u8,
+  ) -> Option<Self> {
+    let s = s.as_ref();
+    let mut data = [0u8; 256];
+
+    if s.len() > max as usize {
+      return None;
+    }
+
+    for (i, &b) in s.as_bytes().iter().enumerate() {
+      if !charset(b) {
+        return None;
+      }
+
+      data[i] = b;
+    }
+
+    for i in s.len()..(max as usize) {
+      data[i] = padding;
+    }
+
     Some(Self {
-      kind: IdentifierKind::D1Characters,
-      data: {
-        // TODO(meowesque): Validate.
-        let mut data = [0; 256];
-        let bytes = name.as_ref().as_bytes();
-        let len = bytes.len().min(255);
-        data[..len].copy_from_slice(&bytes[..len]);
-        data
-      },
-      length: name.len().min(128) as u8,
-      padding: 0,
+      kind,
+      data,
+      length: s.len() as u8,
+      padding: max - s.len() as u8,
     })
   }
 }
@@ -155,6 +303,20 @@ pub enum JolietLevel {
 /// of a1-characters is identical to the set of a-characters.
 #[derive(Debug)]
 pub struct EscapeSequences<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
+
+impl<const LENGTH: usize> EscapeSequences<LENGTH> {
+  pub const fn joliet_level_3() -> Self {
+    let mut data = [b' '; LENGTH];
+
+    if LENGTH >= 4 {
+      data[0] = 0x25; // '%'
+      data[1] = 0x2F; // '/'
+      data[2] = 0x45; // 'E'
+    }
+
+    Self(data)
+  }
+}
 
 /// Escape sequences conforming to ISO/IEC 2022, excluding the escape characters.
 #[derive(Debug)]
