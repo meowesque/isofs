@@ -45,6 +45,74 @@ impl Identifier {
     self.kind
   }
 
+  pub fn file_identifier(
+    name: impl AsRef<str>,
+    compatibility_mode: CompatibilityMode,
+  ) -> Option<Self> {
+    match compatibility_mode {
+      CompatibilityMode::Joliet(level) => Self::joliet_file_identifier(name, level),
+      CompatibilityMode::Standard => Self::standard_file_identifier(name),
+    }
+  }
+
+  pub fn joliet_file_identifier(name: impl AsRef<str>, _level: JolietLevel) -> Option<Self> {
+    // TODO(meowesque): Implement level.
+    let count = name.as_ref().chars().count();
+
+    if count > 64 {
+      return None;
+    }
+
+    let mut ucs2: [u16; 64] = [0; 64];
+
+    ucs2::encode(name.as_ref(), &mut ucs2).ok()?;
+
+    let mut data: [u8; 256] = [0; 256];
+
+    for (ix, &c) in ucs2.iter().enumerate().take(count) {
+      let bytes = c.to_be_bytes();
+
+      data[ix * 2] = bytes[0];
+      data[ix * 2 + 1] = bytes[1];
+    }
+
+    Some(Self {
+      kind: IdentifierKind::JolietFileIdentifier,
+      data,
+      length: (count * 2) as u8,
+      padding: 0,
+    })
+  }
+
+  pub fn joliet_directory_identifier(name: impl AsRef<str>, _level: JolietLevel) -> Option<Self> {
+    // TODO(meowesque): Implement level.
+    let count = name.as_ref().chars().count();
+
+    if count > 64 {
+      return None;
+    }
+
+    let mut ucs2: [u16; 64] = [0; 64];
+
+    ucs2::encode(name.as_ref(), &mut ucs2).ok()?;
+
+    let mut data: [u8; 256] = [0; 256];
+
+    for (ix, &c) in ucs2.iter().enumerate().take(count) {
+      let bytes = c.to_be_bytes();
+
+      data[ix * 2] = bytes[0];
+      data[ix * 2 + 1] = bytes[1];
+    }
+
+    Some(Self {
+      kind: IdentifierKind::JolietFileIdentifier,
+      data,
+      length: (count * 2) as u8,
+      padding: 0,
+    })
+  }
+
   /// Special identifier representing the root directory with length of zero.
   pub fn root_directory() -> Self {
     Self {
@@ -287,7 +355,7 @@ impl Identifier {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum JolietLevel {
   /// UCS-2 Level 1
   Level1,
