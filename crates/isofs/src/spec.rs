@@ -80,11 +80,11 @@ impl Identifier {
 
     let convert = |b: u8| {
       let b = b.to_ascii_uppercase();
-    
+
       match b {
         // TODO(meowesque): More characters?
         b'-' => b'_',
-        _ => b
+        _ => b,
       }
     };
 
@@ -295,6 +295,13 @@ pub enum JolietLevel {
   Level2,
   /// UCS-2 Level 3
   Level3,
+}
+
+#[derive(Debug)]
+pub enum CompatibilityMode {
+  Joliet(JolietLevel),
+  // TODO(meowesque): Add 8.3?
+  Standard,
 }
 
 /// Escape sequences conforming to ISO/IEC 2022, including the escape characters.
