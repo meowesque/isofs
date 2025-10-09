@@ -17,7 +17,6 @@ pub enum IsoSerializeError {
 pub trait IsoSerialize {
   type Context;
 
-  // TODO(meowesque): Redefine how context is used?
   fn extent(&self) -> usize;
 
   unsafe fn serialize_unchecked(&self, cx: &mut Self::Context, out: &mut [u8]) -> Result<()>;
@@ -40,54 +39,18 @@ pub trait IsoSerialize {
   }
 }
 
-impl<const LENGTH: usize> IsoSerialize for ACharacters<LENGTH> {
+impl IsoSerialize for Identifier {
   type Context = ();
 
   fn extent(&self) -> usize {
-    self.0.len()
+    self.length as usize + self.padding as usize
   }
 
   unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
-    out[..self.extent()].copy_from_slice(&self.0);
-    Ok(())
-  }
-}
+    // TODO(meowesque): Some kinds of identifiers need special types of padding (e.g. 0x20).
+    out[..self.length as usize + self.padding as usize]
+      .copy_from_slice(&self.data[..self.length as usize + self.padding as usize]);
 
-impl<const LENGTH: usize> IsoSerialize for DCharacters<LENGTH> {
-  type Context = ();
-
-  fn extent(&self) -> usize {
-    LENGTH
-  }
-
-  unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
-    out[..self.extent()].copy_from_slice(&self.0);
-    Ok(())
-  }
-}
-
-impl<const LENGTH: usize> IsoSerialize for A1Characters<LENGTH> {
-  type Context = ();
-
-  fn extent(&self) -> usize {
-    self.0.len()
-  }
-
-  unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
-    out[..self.extent()].copy_from_slice(&self.0);
-    Ok(())
-  }
-}
-
-impl<const LENGTH: usize> IsoSerialize for D1Characters<LENGTH> {
-  type Context = ();
-
-  fn extent(&self) -> usize {
-    self.0.len()
-  }
-
-  unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
-    out[..self.extent()].copy_from_slice(&self.0);
     Ok(())
   }
 }
@@ -114,38 +77,6 @@ impl IsoSerialize for VariadicEscapeSequences {
 
   unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
     out[..self.extent()].copy_from_slice(&self.0);
-    Ok(())
-  }
-}
-
-impl IsoSerialize for JolietFileIdentifier {
-  type Context = ();
-
-  fn extent(&self) -> usize {
-    self.0.len() * 2
-  }
-
-  unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
-    self.0.iter().enumerate().for_each(|(i, &c)| {
-      out[i * 2..i * 2 + 2].copy_from_slice(&c.to_be_bytes());
-    });
-
-    Ok(())
-  }
-}
-
-impl IsoSerialize for JolietDirectoryIdentifier {
-  type Context = ();
-
-  fn extent(&self) -> usize {
-    self.0.len() * 2
-  }
-
-  unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
-    self.0.iter().enumerate().for_each(|(i, &c)| {
-      out[i * 2..i * 2 + 2].copy_from_slice(&c.to_be_bytes());
-    });
-
     Ok(())
   }
 }
@@ -185,32 +116,6 @@ impl IsoSerialize for VolumeFlags {
 
   unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
     out[0] = self.bits();
-    Ok(())
-  }
-}
-
-impl<const LENGTH: usize> IsoSerialize for FileIdentifier<LENGTH> {
-  type Context = ();
-
-  fn extent(&self) -> usize {
-    self.0.iter().position(|&b| b == 0).unwrap_or(self.0.len())
-  }
-
-  unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
-    out[..self.extent()].copy_from_slice(&self.0[..self.extent()]);
-    Ok(())
-  }
-}
-
-impl<const LENGTH: usize> IsoSerialize for DirectoryIdentifier<LENGTH> {
-  type Context = ();
-
-  fn extent(&self) -> usize {
-    self.0.iter().position(|&b| b == 0).unwrap_or(self.0.len())
-  }
-
-  unsafe fn serialize_unchecked(&self, (): &mut (), out: &mut [u8]) -> Result<()> {
-    out[..self.extent()].copy_from_slice(&self.0[..self.extent()]);
     Ok(())
   }
 }
@@ -853,11 +758,7 @@ impl IsoSerialize for VolumeDescriptorSetTerminator {
   }
 }
 
-impl<Ext: Extension> IsoSerialize for DirectoryRecord<Ext>
-where
-  Ext::FileIdentifier: IsoSerialize,
-  <Ext::FileIdentifier as IsoSerialize>::Context: Default,
-{
+impl IsoSerialize for DirectoryRecord {
   type Context = ();
 
   fn extent(&self) -> usize {
@@ -931,7 +832,7 @@ impl IsoSerialize for RootDirectoryRecord {
   }
 }
 
-impl IsoSerialize for PathTableRecord<NoExtension> {
+impl IsoSerialize for PathTableRecord {
   type Context = Endianness;
 
   fn extent(&self) -> usize {

@@ -19,3 +19,5 @@ log = "0.4.28"
 thiserror = "2.0.16"
 chrono = { version = "0.4.42", optional = true }
 time = { version = "0.3.44", optional = true }
+arraystring = "0.3.0"
+walkdir = "2.5.0"
