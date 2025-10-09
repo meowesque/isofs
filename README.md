@@ -4,6 +4,23 @@
 
 `isofs` is a library for manipulating `.iso` files (ie. ISO 9660) and UDF filesystems. 
 
+```rs
+use isofs::writer::*;
+
+fn main() -> Result<(), isofs::error::Error> {
+  let mut writer = IsoWriter::new(IsoWriterOptions::compatibility());
+
+  writer.upsert_filesystem(
+    Filesystem::capture("Documents", "~/Documents")?,
+    &OnFileConflict::Overwrite,
+  )?;
+
+  writer.finalize(std::fs::File::create("my-documents.iso")?)?;
+
+  Ok(())
+}
+```
+
 ## Feature Flags
 
 * `chrono` Enables conversion with [chrono](https://crates.io/crates/chrono) types.
