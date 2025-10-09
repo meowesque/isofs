@@ -239,7 +239,7 @@ impl FileEntry {
 }
 
 /// Represents a directory in the filesystem, which can contain files and subdirectories.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DirectoryEntry {
   /// LBA of the start of the directory's data.
   data_lba: Option<u32>,
@@ -346,7 +346,11 @@ pub struct RootDirectory {
 
 impl RootDirectory {
   /// Creates a new root directory by scaffolding from the given path.
-  pub fn scaffold(components: impl DoubleEndedIterator<Item = impl AsRef<str>>) -> Self {
+  pub fn scaffold(
+    components: impl DoubleEndedIterator<Item = impl AsRef<str>>,
+    dirs: HashMap<ArrayStringU255, DirectoryEntry>,
+    files: HashMap<ArrayStringU255, FileEntry>,
+  ) -> Self {
     // TODO(meowesque): See if we can avoid using a DoubleEndedIterator here.
 
     let mut tail: Option<DirectoryEntry> = None;
@@ -356,8 +360,9 @@ impl RootDirectory {
         None => DirectoryEntry {
           data_lba: None,
           name: ArrayStringU255::from(part.as_ref()),
-          dirs: HashMap::new(),
-          files: HashMap::new(),
+          // TODO(meowesque): Avoid clone for efficiency.
+          dirs: dirs.clone(),
+          files: files.clone(),
         },
         Some(tail) => DirectoryEntry {
           data_lba: None,
@@ -392,18 +397,18 @@ impl RootDirectory {
           parent
             .components()
             .map(|comp| comp.as_os_str().to_string_lossy()),
+          HashMap::new(),
+          HashMap::from([(
+            file_name.to_string_lossy().as_ref().into(),
+            FileEntry {
+              data_lba: None,
+              name: file_name.to_string_lossy().as_ref().into(),
+              content,
+            },
+          )]),
         )
       })
       .unwrap_or_default();
-
-    scaffold.files.insert(
-      file_name.to_string_lossy().as_ref().into(),
-      FileEntry {
-        data_lba: None,
-        name: file_name.to_string_lossy().as_ref().into(),
-        content,
-      },
-    );
 
     // Since there's only file within the scaffold, we can
     // merge it, as there will only be at most one conflict.
@@ -513,7 +518,7 @@ impl Filesystem {
     // TODO(meowesque): Handle destination properly.
     let mut root = RootDirectory::default();
 
-    for entry in walkdir::WalkDir::new(path) {
+    for entry in walkdir::WalkDir::new(&path) {
       let entry = entry?;
 
       if entry.file_type().is_file() {
@@ -521,7 +526,9 @@ impl Filesystem {
         let content = FileEntryContent::try_from(file)?;
 
         root.insert_file(
-          destination.as_ref().join(entry.path()),
+          dbg!(destination
+            .as_ref()
+            .join(entry.path().strip_prefix(path.as_ref()).unwrap())),
           content,
           &OnFileConflict::Overwrite,
         )?;
@@ -1022,7 +1029,12 @@ impl IsoWriter {
       Ok(())
     }
 
-    write_root_directory(&mut writer, &self.filesystem.root, &self.options, &context)?;
+    write_root_directory(
+      &mut writer,
+      dbg!(&self.filesystem.root),
+      &self.options,
+      &context,
+    )?;
 
     // 6. Done!
 
