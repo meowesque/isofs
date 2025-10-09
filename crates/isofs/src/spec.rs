@@ -176,15 +176,15 @@ impl Identifier {
   }
 
   pub fn standard_file_identifier(full: impl AsRef<str>) -> Option<Self> {
-    let full = dbg!(full.as_ref());
+    let full = full.as_ref();
 
-    if dbg!(full.len() > 35 || (!full.contains('.') && full.len() > 34)) {
+    if full.len() > 35 || (!full.contains('.') && full.len() > 34) {
       // TODO(meowesque): Provide better error reporting.
       return None;
     }
 
-    let stem = dbg!(full.split('.').next()?); // TODO(meowesque): Provide better error reporting.
-    let ext = dbg!(full.rsplit('.').next().unwrap_or(""));
+    let stem = full.split('.').next()?; // TODO(meowesque): Provide better error reporting.
+    let ext = full.rsplit('.').next().unwrap_or("");
 
     // TODO(meowesque): Maximum compatibility mode only allows 3 character extensions.
     /*
@@ -197,7 +197,6 @@ impl Identifier {
 
     for (ix, &b) in stem.as_bytes().iter().enumerate() {
       if !Self::D_CHARACTERS.contains(&b.to_ascii_uppercase()) {
-        dbg!(b as char);
         return None;
       }
 
@@ -208,7 +207,6 @@ impl Identifier {
 
     for (ix, &b) in ext.as_bytes().iter().enumerate() {
       if !Self::D_CHARACTERS.contains(&b.to_ascii_uppercase()) {
-        dbg!(b as char);
         return None;
       }
 
