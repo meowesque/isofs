@@ -3,7 +3,7 @@
 ![Crates.io Version](https://img.shields.io/crates/v/isofs)
 
 > [!IMPORTANT]
-> This library has not yet stablized yet and is subject to significant changes.
+> This library has not yet stablized and is subject to significant changes. Extensive testing is still necessary to ensure maximal specification compliance.
 
 Library for manipulating `.iso` files (ie. ISO 9660) and UDF filesystems. 
 
