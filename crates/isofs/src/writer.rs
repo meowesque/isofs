@@ -526,9 +526,9 @@ impl Filesystem {
         let content = FileEntryContent::try_from(file)?;
 
         root.insert_file(
-          dbg!(destination
+          destination
             .as_ref()
-            .join(entry.path().strip_prefix(path.as_ref()).unwrap())),
+            .join(entry.path().strip_prefix(path.as_ref()).unwrap()),
           content,
           &OnFileConflict::Overwrite,
         )?;
@@ -1031,7 +1031,7 @@ impl IsoWriter {
 
     write_root_directory(
       &mut writer,
-      dbg!(&self.filesystem.root),
+      &self.filesystem.root,
       &self.options,
       &context,
     )?;
