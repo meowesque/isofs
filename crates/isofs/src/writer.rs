@@ -1029,15 +1029,53 @@ impl IsoWriter {
       Ok(())
     }
 
-    write_root_directory(
-      &mut writer,
-      &self.filesystem.root,
-      &self.options,
-      &context,
-    )?;
+    write_root_directory(&mut writer, &self.filesystem.root, &self.options, &context)?;
 
     // 6. Done!
 
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn lba_allocator() {
+    use super::LbaAllocator;
+
+    let mut allocator = LbaAllocator::new(2048, 0);
+
+    assert_eq!(allocator.allocate(1000), 0);
+    assert_eq!(allocator.allocate(2048), 1);
+    assert_eq!(allocator.allocate(3000), 2);
+    assert_eq!(allocator.allocate(4096), 4);
+  }
+
+  #[test]
+  fn sector_writer() {
+    use super::SectorWriter;
+
+    let mut storage = vec![];
+    let mut writer = SectorWriter::new(std::io::Cursor::new(&mut storage), 0, 2048);
+
+    writer
+      .write_aligned(b"Hello, world!")
+      .expect("This shouldn't error!");
+
+    assert_eq!(writer.bytes_offset as usize, b"Hello, world!".len());
+    assert_eq!(writer.sector_ix, 0);
+
+    // Truncated to 2048 bytes.
+    writer
+      .write_aligned(&vec![0u8; 3000])
+      .expect("This shouldn't error!");
+
+    assert_eq!(writer.bytes_offset as usize, 2048);
+    assert_eq!(writer.sector_ix, 1);
+
+    writer.write_aligned(b"Goodbye!").expect("This shouldn't error!");
+
+    assert_eq!(writer.bytes_offset as usize, b"Goodbye!".len());
+    assert_eq!(writer.sector_ix, 2);
   }
 }
