@@ -213,6 +213,10 @@ pub struct FileEntry {
 }
 
 impl FileEntry {
+  pub fn name(&self) -> &str {
+    &self.name
+  }
+
   pub(crate) fn directory_record(&self, context: &Context) -> spec::DirectoryRecord {
     let file_identifier = spec::Identifier::standard_file_identifier(&self.name)
       // TODO(meowesque): Handle different identifier types (e.g., Joliet).
@@ -512,6 +516,10 @@ pub struct Filesystem {
 }
 
 impl Filesystem {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
   /// Captures the file or directory at `path` and inserts it into the filesystem at `destination`.
   /// * If `destination` is the root (i.e., `/`), the captured entry will become the root directory.
   pub fn capture(destination: impl AsRef<Path>, path: impl AsRef<Path>) -> Result<Self> {
@@ -526,9 +534,9 @@ impl Filesystem {
         let content = FileEntryContent::try_from(file)?;
 
         root.insert_file(
-          dbg!(destination
+          destination
             .as_ref()
-            .join(entry.path().strip_prefix(path.as_ref()).unwrap())),
+            .join(entry.path().strip_prefix(path.as_ref()).unwrap()),
           content,
           &OnFileConflict::Overwrite,
         )?;
@@ -554,6 +562,16 @@ impl Filesystem {
     on_file_conflict: &OnFileConflict,
   ) -> Result<()> {
     self.root.insert_file(path, content, on_file_conflict)
+  }
+
+  /// Iterator over all top-level directories in the filesystem.
+  pub fn directories_iter(&self) -> impl Iterator<Item = &DirectoryEntry> {
+    self.root.dirs.values()
+  }
+
+  /// Iterator over all top-level files in the filesystem.
+  pub fn files_iter(&self) -> impl Iterator<Item = &FileEntry> {
+    self.root.files.values()
   }
 
   pub(crate) fn allocate_lbas(&mut self, allocator: &mut LbaAllocator, context: &Context) {
@@ -1029,15 +1047,55 @@ impl IsoWriter {
       Ok(())
     }
 
-    write_root_directory(
-      &mut writer,
-      dbg!(&self.filesystem.root),
-      &self.options,
-      &context,
-    )?;
+    write_root_directory(&mut writer, &self.filesystem.root, &self.options, &context)?;
 
     // 6. Done!
 
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn lba_allocator() {
+    use super::LbaAllocator;
+
+    let mut allocator = LbaAllocator::new(2048, 0);
+
+    assert_eq!(allocator.allocate(1000), 0);
+    assert_eq!(allocator.allocate(2048), 1);
+    assert_eq!(allocator.allocate(3000), 2);
+    assert_eq!(allocator.allocate(4096), 4);
+  }
+
+  #[test]
+  fn sector_writer() {
+    use super::SectorWriter;
+
+    let mut storage = vec![];
+    let mut writer = SectorWriter::new(std::io::Cursor::new(&mut storage), 0, 2048);
+
+    writer
+      .write_aligned(b"Hello, world!")
+      .expect("This shouldn't error!");
+
+    assert_eq!(writer.bytes_offset as usize, b"Hello, world!".len());
+    assert_eq!(writer.sector_ix, 0);
+
+    // Truncated to 2048 bytes.
+    writer
+      .write_aligned(&vec![0u8; 3000])
+      .expect("This shouldn't error!");
+
+    assert_eq!(writer.bytes_offset as usize, 2048);
+    assert_eq!(writer.sector_ix, 1);
+
+    writer
+      .write_aligned(b"Goodbye!")
+      .expect("This shouldn't error!");
+
+    assert_eq!(writer.bytes_offset as usize, b"Goodbye!".len());
+    assert_eq!(writer.sector_ix, 2);
   }
 }
