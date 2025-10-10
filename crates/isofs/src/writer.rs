@@ -213,6 +213,10 @@ pub struct FileEntry {
 }
 
 impl FileEntry {
+  pub fn name(&self) -> &str {
+    &self.name
+  }
+
   pub(crate) fn directory_record(&self, context: &Context) -> spec::DirectoryRecord {
     let file_identifier = spec::Identifier::standard_file_identifier(&self.name)
       // TODO(meowesque): Handle different identifier types (e.g., Joliet).
@@ -512,6 +516,10 @@ pub struct Filesystem {
 }
 
 impl Filesystem {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
   /// Captures the file or directory at `path` and inserts it into the filesystem at `destination`.
   /// * If `destination` is the root (i.e., `/`), the captured entry will become the root directory.
   pub fn capture(destination: impl AsRef<Path>, path: impl AsRef<Path>) -> Result<Self> {
@@ -554,6 +562,16 @@ impl Filesystem {
     on_file_conflict: &OnFileConflict,
   ) -> Result<()> {
     self.root.insert_file(path, content, on_file_conflict)
+  }
+
+  /// Iterator over all top-level directories in the filesystem.
+  pub fn directories_iter(&self) -> impl Iterator<Item = &DirectoryEntry> {
+    self.root.dirs.values()
+  }
+
+  /// Iterator over all top-level files in the filesystem.
+  pub fn files_iter(&self) -> impl Iterator<Item = &FileEntry> {
+    self.root.files.values()
   }
 
   pub(crate) fn allocate_lbas(&mut self, allocator: &mut LbaAllocator, context: &Context) {
@@ -1073,7 +1091,9 @@ mod tests {
     assert_eq!(writer.bytes_offset as usize, 2048);
     assert_eq!(writer.sector_ix, 1);
 
-    writer.write_aligned(b"Goodbye!").expect("This shouldn't error!");
+    writer
+      .write_aligned(b"Goodbye!")
+      .expect("This shouldn't error!");
 
     assert_eq!(writer.bytes_offset as usize, b"Goodbye!".len());
     assert_eq!(writer.sector_ix, 2);
