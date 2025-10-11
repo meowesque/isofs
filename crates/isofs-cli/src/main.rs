@@ -5,18 +5,20 @@ fn main() -> Result<(), isofs::error::Error> {
 
   pretty_env_logger::init();
 
-  let mut writer = IsoWriter::new(IsoWriterOptions {
-    joliet: true,
-    sector_size: 2048,
-  });
+  let cli = cli::parse();
 
-  writer.upsert_filesystem(
-    Filesystem::capture("crates", "./crates")?,
-    &OnFileConflict::Overwrite,
-  )?;
+  match cli.command {
+    cli::Command::Create { output, directory } => {
+      let mut writer = IsoWriter::new(IsoWriterOptions::compatibility());
 
-  writer.finalize(std::fs::File::create("data/crates.iso")?)?;
+      writer.upsert_filesystem(
+        Filesystem::capture("", &directory)?,
+        &OnFileConflict::Overwrite,
+      )?;
+
+      writer.finalize(std::fs::File::create(output)?)?;
+    }
+  }
 
   Ok(())
 }
-
