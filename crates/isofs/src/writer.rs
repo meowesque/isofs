@@ -521,7 +521,7 @@ impl Filesystem {
   }
 
   /// Captures the file or directory at `path` and inserts it into the filesystem at `destination`.
-  /// * If `destination` is the root (i.e., `/`), the captured entry will become the root directory.
+  /// * If `destination` is the root (i.e., `""`), the captured entry will become the root directory.
   pub fn capture(destination: impl AsRef<Path>, path: impl AsRef<Path>) -> Result<Self> {
     // TODO(meowesque): Handle destination properly.
     let mut root = RootDirectory::default();
