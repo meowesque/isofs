@@ -36,7 +36,8 @@ fn main() -> Result<(), isofs::error::Error> {
 * [El Torito](https://pdos.csail.mit.edu/6.828/2014/readings/boot-cdrom.pdf)
 * [ECMA-119](https://ecma-international.org/wp-content/uploads/ECMA-119_5th_edition_december_2024.pdf)
 * ISO/IEC 9660:2023 
-* [OSDev Wiki](https://wiki.osdev.org/ISO_9660)
+* [OSDev Wiki (UDF)](https://wiki.osdev.org/UDF)
+* [OSDev Wiki (ISO 9660)](https://wiki.osdev.org/ISO_9660)
 * [isofs](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/isofs)
 
 ## Acknowledgements
